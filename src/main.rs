@@ -27,16 +27,15 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>, Infallible> {
         (&Method::GET, "/") => {
             let body = fs::read_to_string("index.html").await.unwrap();
             Ok(Response::builder()
-                .status(StatusCode::NOT_FOUND)
+                .status(StatusCode::OK)
                 .body(Body::from(body))
                 .unwrap())
         }
         (&Method::POST, "/") => {
             // TODO: Implement file storing and return file url in body
-            let body = "successful";
             Ok(Response::builder()
                 .status(StatusCode::CREATED)
-                .body(Body::from(body))
+                .body(Body::empty())
                 .unwrap())
         }
         (&Method::GET, ..) => {
