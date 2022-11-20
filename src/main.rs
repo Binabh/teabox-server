@@ -1,6 +1,15 @@
-use hyper::{server::conn::Http, service::service_fn, Body, Method, Request, Response, StatusCode};
-use std::{convert::Infallible, env};
-use tokio::{fs, net::TcpListener};
+use base64ct::{Base64Url, Encoding};
+use hyper::{
+    header::CONTENT_TYPE, server::conn::Http, service::service_fn, Body, Method, Request, Response,
+    StatusCode,
+};
+use multer::Multipart;
+use sha2::{Digest, Sha256};
+use std::{convert::Infallible, env, path::PathBuf};
+use tokio::{fs, io::AsyncWriteExt, net::TcpListener};
+
+const UPLOAD_FOLDER: &str = "uploads";
+const TEMPLATE_FOLDER: &str = "templates";
 
 #[tokio::main]
 async fn main() {
@@ -25,33 +34,91 @@ async fn main() {
 async fn respond(req: Request<Body>) -> Result<Response<Body>, Infallible> {
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
-            let body = fs::read_to_string("index.html").await.unwrap();
+            let file_path = PathBuf::from(TEMPLATE_FOLDER).join("index.html");
+            let body = fs::read_to_string(file_path).await.unwrap();
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .body(Body::from(body))
                 .unwrap())
         }
         (&Method::POST, "/") => {
-            // TODO: Implement file storing and return file url in body
-            Ok(Response::builder()
-                .status(StatusCode::CREATED)
-                .body(Body::empty())
-                .unwrap())
+            // Extract the `multipart/form-data` boundary from the headers.
+            let boundary = req
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|ct| ct.to_str().ok())
+                .and_then(|ct| multer::parse_boundary(ct).ok());
+
+            // Send `BAD_REQUEST` status if the content-type is not multipart/form-data.
+            if boundary.is_none() {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from("BAD REQUEST"))
+                    .unwrap());
+            }
+
+            // Process the multipart
+            let res = process_multipart(req.into_body(), boundary.unwrap()).await;
+            match res {
+                Ok(url) => Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(Body::from(url))
+                    .unwrap()),
+                Err(err) => Ok(Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::from(format!("INTERNAL SERVER ERROR: {}", err)))
+                    .unwrap()),
+            }
         }
         (&Method::GET, ..) => {
-            // TODO: Send file if url is present else send te response below
-            let body = fs::read_to_string("404.html").await.unwrap();
+            let file_path = PathBuf::from(UPLOAD_FOLDER).join(&req.uri().path()[1..]);
+            if let Ok(contents) = tokio::fs::read(file_path).await {
+                let body = contents.into();
+                return Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(body)
+                    .unwrap());
+            }
+            let file_path = PathBuf::from(TEMPLATE_FOLDER).join("404.html");
+
+            let body = fs::read_to_string(file_path).await.unwrap();
+
             Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from(body))
                 .unwrap())
         }
         _ => {
-            let body = fs::read_to_string("404.html").await.unwrap();
+            let file_path = PathBuf::from(TEMPLATE_FOLDER).join("404.html");
+            let body = fs::read_to_string(file_path).await.unwrap();
             Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from(body))
                 .unwrap())
         }
     }
+}
+
+async fn process_multipart(body: Body, boundary: String) -> multer::Result<String> {
+    let mut multipart = Multipart::new(body, boundary);
+    let mut file_url = String::new();
+    while let Some(mut field) = multipart.next_field().await? {
+        let mut chunk_list = vec![];
+        while let Some(field_chunk) = field.chunk().await? {
+            chunk_list.push(field_chunk);
+        }
+        let data = chunk_list.concat();
+        let hash = Sha256::digest(&data);
+        const BUF_SIZE: usize = 256;
+        let mut enc_buf = [0u8; BUF_SIZE];
+        let encoded = Base64Url::encode(&hash, &mut enc_buf).unwrap();
+        let filename = &encoded[..6];
+        let file_path = PathBuf::from(UPLOAD_FOLDER).join(&filename);
+        let mut file = fs::File::create(file_path).await.unwrap();
+        file.write_all(&data).await.unwrap();
+        file.flush().await.unwrap();
+        file_url.push_str(&filename);
+    }
+
+    Ok(file_url)
 }
