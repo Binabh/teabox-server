@@ -7,15 +7,16 @@ use multer::Multipart;
 use sha2::{Digest, Sha256};
 use std::{convert::Infallible, env, path::PathBuf};
 use tokio::{fs, io::AsyncWriteExt, net::TcpListener};
-
+// TODO: move these as environment variables
 const UPLOAD_FOLDER: &str = "uploads";
 const TEMPLATE_FOLDER: &str = "templates";
-
+const LOCAL_ADDRESS: &str = "127.0.0.1:7878";
+const WEB_ADDRESS: &str = "http://127.0.0.1:7878/";
 #[tokio::main]
 async fn main() {
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:7878".to_string());
+        .unwrap_or_else(|| LOCAL_ADDRESS.to_string());
     let listener = TcpListener::bind(&addr).await.unwrap();
     println!("Listening on: {}", &addr);
     loop {
@@ -101,7 +102,7 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>, Infallible> {
 
 async fn process_multipart(body: Body, boundary: String) -> multer::Result<String> {
     let mut multipart = Multipart::new(body, boundary);
-    let mut file_url = String::new();
+    let mut file_url = String::from(WEB_ADDRESS);
     while let Some(mut field) = multipart.next_field().await? {
         let mut chunk_list = vec![];
         while let Some(field_chunk) = field.chunk().await? {
@@ -118,6 +119,7 @@ async fn process_multipart(body: Body, boundary: String) -> multer::Result<Strin
         file.write_all(&data).await.unwrap();
         file.flush().await.unwrap();
         file_url.push_str(&filename);
+        file_url.push_str("\n");
     }
 
     Ok(file_url)

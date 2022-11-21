@@ -2,7 +2,7 @@
 
 # teabox - A simple file hosting server in rust
 
-Accepts file and saved them in files named as the sha256 digest of content.
+Accepts file and saves them as files named as the sha256 digest of content.
 Similar to [0x0.st](https://0x0.st/)
 
 ## Usage
@@ -11,4 +11,10 @@ Similar to [0x0.st](https://0x0.st/)
 
 ```
 curl -F 'file=@yourfile' 127.0.0.1:7878
+```
+
+### Get a file
+
+```
+wget <url returned by post request>
 ```
