@@ -105,6 +105,7 @@ async fn process_multipart(body: Body, boundary: String) -> multer::Result<Strin
     let mut file_url = String::from(WEB_ADDRESS);
     while let Some(mut field) = multipart.next_field().await? {
         let mut chunk_list = vec![];
+        print!("{:?}",field);
         while let Some(field_chunk) = field.chunk().await? {
             chunk_list.push(field_chunk);
         }
