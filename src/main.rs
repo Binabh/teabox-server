@@ -105,16 +105,20 @@ async fn process_multipart(body: Body, boundary: String) -> multer::Result<Strin
     let mut file_url = String::from(WEB_ADDRESS);
     while let Some(mut field) = multipart.next_field().await? {
         let mut chunk_list = vec![];
-        print!("{:?}",field);
         while let Some(field_chunk) = field.chunk().await? {
             chunk_list.push(field_chunk);
         }
         let data = chunk_list.concat();
+        let kind = match infer::get(&data) {
+            Some(kind) => kind,
+            None => infer::Type::new(infer::MatcherType::Text, "text", "txt", custom_matcher),
+        };
+        print!("File type: {:?}", kind.extension());
         let hash = Sha256::digest(&data);
         const BUF_SIZE: usize = 256;
         let mut enc_buf = [0u8; BUF_SIZE];
         let encoded = Base64Url::encode(&hash, &mut enc_buf).unwrap();
-        let filename = &encoded[..6];
+        let filename = encoded[..6].to_owned() + "." + kind.extension();
         let file_path = PathBuf::from(UPLOAD_FOLDER).join(&filename);
         let mut file = fs::File::create(file_path).await.unwrap();
         file.write_all(&data).await.unwrap();
@@ -124,4 +128,8 @@ async fn process_multipart(body: Body, boundary: String) -> multer::Result<Strin
     }
 
     Ok(file_url)
+}
+
+fn custom_matcher(_buf: &[u8]) -> bool {
+    return true;
 }
